@@ -1,0 +1,101 @@
+#!/bin/bash
+#
+
+USE_YAST=true
+
+# TESTBUS_SELFTEST_DEBUG=all
+
+. /usr/share/testbus/functions
+
+TMPDIR=/tmp/testbus-kdump
+mkdir -p $TMPDIR
+
+# Override the timeout for claiming the host.
+# Bringing up a VM guest can take some time, especially if it goes
+# through a firstboot stage first.
+TESTBUS_CLAIM_TIMEOUT=240
+
+function __kdump_run_crash_host {
+	testbus_run_command --timeout 60 --host $CRASH_HOST "$@"
+}
+
+function kdump_run_crash_host {
+	__kdump_run_crash_host "$@" || testbus_test_failure
+}
+
+function kdump_run_crash_host_script {
+	kdump_run_crash_host --host $CRASH_HOST --send-script "$@"
+}
+
+function __kdump_run_server {
+	testbus_run_command --host $DUMP_SERVER "$@"
+}
+
+function kdump_run_server {
+	__kdump_run_server "$@" || testbus_test_failure
+}
+
+
+testbus_group_begin $0
+
+CRASH_HOST=`testbus_claim_host --role crashhost`
+test -n "$CRASH_HOST" || testbus_exit_fail "unable to claim crash host"
+
+##################################################################
+# Initialize kdump using yast2
+##################################################################
+testbus_group_begin kdump-init
+
+testbus_test_begin setup
+testbus_trace "The following will currently time out and error, because yast2 pops up a dialog box"
+kdump_run_crash_host --use-terminal --timeout 10 /sbin/yast2 kdump startup enable alloc_mem=256
+kdump_run_crash_host --use-terminal --timeout 10 /sbin/yast2 kdump immediatereboot enable
+
+testbus_test_begin reboot
+if ! testbus_reboot_host --wait --timeout 120 $CRASH_HOST; then
+	testbus_test_failure "unable to reboot crash host"
+	exit 1
+fi
+
+testbus_test_begin verify-host
+if !  kdump_run_crash_host --timeout 10 /bin/true; then
+	exit 1
+fi
+
+testbus_group_finish
+
+##################################################################
+# Crash the system
+##################################################################
+testbus_group_begin crash-it
+
+testbus_test_begin trigger-crash
+
+##################################################################
+# Caveat emptor. Here is how not to do it
+#   kdump_run_crash_host /bin/echo c > /proc/sysrq-trigger
+# Because this will execute "echo c" on the test node, and write the
+# output to /proc/sysrq-trigger on the control node - which crashes
+# the control node. Been there, done that :-)
+##################################################################
+kdump_run_crash_host_script --nowait - <<EOF
+#!/bin/sh
+echo c > /proc/sysrq-trigger
+EOF
+
+testbus_test_begin wait-for-host
+if !  kdump_run_crash_host --timeout 120 /bin/true; then
+	exit 1
+fi
+
+testbus_test_begin crash-exists
+files=`kdump_run_crash_host ls /var/crash`
+if [ -z "$files" ]; then
+	testbus_test_failure "no kernel dump found - didn't work"
+	exit 1
+fi
+
+
+testbus_group_finish
+
+testbus_exit
