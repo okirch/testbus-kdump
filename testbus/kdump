@@ -16,7 +16,7 @@ mkdir -p $TMPDIR
 TESTBUS_CLAIM_TIMEOUT=240
 
 function __kdump_run_crash_host {
-	testbus_run_command --timeout 60 --host $CRASH_HOST "$@"
+	testbus_run_command --host $CRASH_HOST "$@"
 }
 
 function kdump_run_crash_host {
@@ -58,9 +58,44 @@ if ! testbus_reboot_host --wait --timeout 120 $CRASH_HOST; then
 fi
 
 testbus_test_begin verify-host
-if !  kdump_run_crash_host --timeout 10 /bin/true; then
+if !  kdump_run_crash_host /bin/true; then
 	exit 1
 fi
+
+testbus_test_begin verify-service
+output=`kdump_run_crash_host /usr/bin/systemctl status kdump.service | grep Active:`
+start_service=false
+case $output in
+*'Active: active'*)
+	testbus_trace "kdump service is active"
+	testbus_test_success
+	: ;;
+*)
+	testbus_test_failure "kdump service not loaded or not active"
+	start_service=true
+	: ;;
+esac
+
+if $start_service; then
+	testbus_test_begin start-service
+	kdump_run_crash_host /usr/bin/systemctl start kdump.service
+fi
+
+testbus_test_begin verify-loaded
+kdump_run_crash_host_script - <<EOF
+#!/bin/sh
+
+case `cat /sys/kernel/kexec_crash_loaded` in
+1)	: ;;
+*)	echo "No crash kernel loaded"
+	exit 1;;
+esac
+
+# More check should go here
+
+exit 0
+EOF
+
 
 testbus_group_finish
 
@@ -84,7 +119,15 @@ echo c > /proc/sysrq-trigger
 EOF
 
 testbus_test_begin wait-for-host
-if !  kdump_run_crash_host --timeout 120 /bin/true; then
+
+# This really needs a feature in the testbus client
+echo "Waiting for host to come back"
+for f in `seq 1 60`; do
+	echo -n .
+	sleep 1
+done
+
+if !  kdump_run_crash_host /bin/true; then
 	exit 1
 fi
 
