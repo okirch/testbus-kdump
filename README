@@ -1,0 +1,7 @@
+testbus-nfs
+===========
+
+Scripts for testing kdump with testbus.
+
+For now, this is pretty incomplete, and work in progress. Part of the issue
+is that I cannot get yast2-kdump do what I want it to do...
