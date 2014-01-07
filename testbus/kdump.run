@@ -8,7 +8,7 @@ if [ -z "$image" ]; then
 	exit 1
 fi
 
-testbus-control-kvm start crash_host $image
+testbus-control start crash_host $image
 $basedir/kdump
-testbus-control-kvm stop crash_host
+testbus-control stop crash_host
 
