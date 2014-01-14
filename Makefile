@@ -5,7 +5,7 @@ testdir	= /usr/share/testbus/suites
 CFLAGS	= -Wall -O2
 APPS	= 
 SCRIPTS	= testbus/kdump \
-	  testbus/kdump.run
+	  testbus/kdump.conf
 
 all: $(APPS)
 
